@@ -4,6 +4,8 @@
 # there is no more input left for lexical analysis
 from enum import Enum
 
+from pyhulk.log import logged
+
 class Tokens(Enum):
     ID = "ID"
     INTEGER = "INTEGER"
@@ -13,6 +15,7 @@ class Tokens(Enum):
     MINUS = "-"
     MULT = "*"
     DIV = "/"
+    EXP = "^"
     LPAREN = "("
     RPAREN = ")"
     ASSIGN = "="
@@ -22,6 +25,9 @@ class Tokens(Enum):
     FLOAT_TYPE = "float"
     INT_TYPE = "int"
     QUOTATION = "\""
+    COMMA = ","
+
+LITERALS = {Tokens.STRING.name, Tokens.INTEGER.name, Tokens.FLOAT.name}
 
 def token_from_value(value):
     for key, pair in Tokens.__members__.items():
@@ -29,10 +35,15 @@ def token_from_value(value):
             return Tokens.__getitem__(key)
     return None
 
+@logged
 class Token:
     def __init__(self, type_: "Tokens", value=None):
         self.type = type_.name
         self.value = value if value else type_.value
+        self.logger.debug("Created token %s", self)
+
+    def __hash__(self):
+        return hash((self.type, self.value))
 
     def __str__(self):
         """String representation of the class instance.
@@ -42,10 +53,7 @@ class Token:
             Token(PLUS, "+")
             Token(MUL, "*")
         """
-        return "Token({type_}, {value})".format(
-            type_=self.type,
-            value=repr(self.value)
-        )
+        return f"Token({self.type_}, {self.value})"
 
     def __eq__(self, other):
         return isinstance(other, Token) and other.type == self.type and other.value == self.value
@@ -59,7 +67,11 @@ RESERVED_KEYWORDS = {
     "float": Token(Tokens.FLOAT_TYPE),
 }
 
+class LexingError(Exception):
+    pass
+
 # denotes end of a sentence
+@logged
 class Lexer:
 
     def __init__(self, text, line=1):
@@ -69,7 +81,7 @@ class Lexer:
         self.current_char: str = self.text[self.pos]
 
     def error(self, exception):
-        print(f"Error parsing line {self.line} col {self.pos+1}")
+        print(f"Error lexing line {self.line} col {self.pos+1}")
         print(self.text)
         print(" "*(self.pos+1) + "^")
         raise exception
@@ -85,7 +97,7 @@ class Lexer:
         """Advance the `pos` pointer and set the `current_char` variable."""
         self.pos += 1
         if self.pos > len(self.text) - 1:
-            self.error(SyntaxError("Unexpected EOF while parsing")) # No ";"--explode
+            self.error(LexingError("Unexpected EOF while parsing")) # No ";"--explode
         else:
             self.current_char = self.text[self.pos]
 
@@ -111,6 +123,7 @@ class Lexer:
         # number + new_num
         # or you can just add it as a string idc
         result = self.get_result("digit")
+        self.logger.debug("Lexing number %s", result)
 
         return result
 
@@ -123,7 +136,8 @@ class Lexer:
             self.advance()
 
         if self.current_char is not Tokens.QUOTATION.value:
-            self.error("Unterminated string literal")
+            self.error(LexingError("Unterminated string literal"))
+        self.logger.debug("Lexing string %s", result)
         return result
 
     def _id(self):
@@ -131,6 +145,7 @@ class Lexer:
         result = self.get_result("alnum")
 
         token = RESERVED_KEYWORDS.get(result, Token(Tokens.ID, result))
+        self.logger.debug("Lexing identifier %s", token)
         return token
 
 
@@ -163,8 +178,7 @@ class Lexer:
 
             token = token_from_value(self.current_char)
             if not token:
-                breakpoint()
-                self.error(SyntaxError("Invalid syntax"))
+                self.error(LexingError("Invalid character"))
 
             self.advance()
             return Token(token)
