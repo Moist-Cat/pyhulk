@@ -24,7 +24,7 @@ class Tokens(Enum):
     LET = "let"
     FLOAT_TYPE = "float"
     INT_TYPE = "int"
-    QUOTATION = "\""
+    QUOTATION = '"'
     COMMA = ","
 
 LITERALS = {Tokens.STRING.name, Tokens.INTEGER.name, Tokens.FLOAT.name}

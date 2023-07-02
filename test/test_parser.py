@@ -3,7 +3,7 @@ import unittest.mock
 import time
 
 from . import TEST_DIR
-from pyhulk.lexer import Lexer, Tokens, Token
+from pyhulk.lexer import Lexer, Tokens, Token, LexingError
 
 
 class TestLexer(unittest.TestCase):
@@ -28,7 +28,7 @@ class TestLexer(unittest.TestCase):
         l = Lexer('blob doko "lorem noger;')
         l.get_next_token()
         l.get_next_token()
-        with self.assertRaises(SyntaxError):
+        with self.assertRaises(LexingError):
             self.assertEqual(Token(Tokens.STRING, "lorem"), l.get_next_token())
 
     def test_float(self):
