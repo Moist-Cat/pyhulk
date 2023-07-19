@@ -3,25 +3,6 @@ from typing import Union
 from pyhulk.lexer import Lexer, Tokens, LITERALS
 from pyhulk.log import logged
 
-class TypeValidator:
-
-    type_: type
-    _val = None
-
-    def __init__(self, type_):
-        self.type_ = type_
-
-    def __get__(self, obj, objtype=None):
-        return self._val
-
-
-    def __set__(self, obj, value):
-        #if not isinstance(value, self.type_):
-        #    raise ValueError(
-        #        f"type {self.type_} expected found '{value.__class__.__name__}' for {value}"
-        #    )
-        self._val = self.type_(value)
-
 class Context:
 
     _dict: dict
@@ -46,6 +27,12 @@ class AST:
     def eval(self, ctx: "Context"):
         raise NotImplementedError()
 
+    def __str__(self):
+        return str(self.eval(None))
+
+    def __repr__(self):
+        return self.__str__()
+
 
 class Literal(AST):
     _val: Union[float, int, str]
@@ -57,49 +44,59 @@ class Literal(AST):
         return self._val
 
 class StrLiteral(Literal):
-    _val: str = TypeValidator(str)
+    _val: str
 
 class IntLiteral(Literal):
-    _val: int = TypeValidator(int)
+    _val: int
 
 class FloatLiteral(Literal):
-    _val: float = TypeValidator(float)
+    _val: float
 
 class BinaryOperation(AST):
 
-    openration: "Callable" = None
+    operation: "Callable" = None
 
     def __init__(self, left: AST, right: AST):
         self.left = left
         self.right = right
 
-    def eval(self):
-        return self.operation(self.left.eval(), self.right.eval())
+    def eval(self, ctx):
+        return self.operation(self.left.eval(ctx), self.right.eval(ctx))
+
+    def __str__(self):
+        return str(self.left) + self.__class__.__name__ + str(self.right)
 
 class Sum(BinaryOperation):
 
-    operation = sum
+    def operation(self, a, b):
+        return a + b
 
-def subs(a, b):
-    # :D
-    return sum(a, -b)
 class Substraction(BinaryOperation):
 
-    operation = subs
+    def operation(self, a, b):
+        return a + -b
 
 
-def div(a, b):
-    return a / b
 class Division(BinaryOperation):
 
-    operation = div
+    def operation(self, a, b):
+        return a / b
 
 
-def mult(a, b):
-    return a * b
 class Mult(BinaryOperation):
 
-    operation = mult
+    def operation(self, a, b):
+        return a * b
+
+class Modulo(BinaryOperation):
+
+    def operation(self, a, b):
+        return a % b
+
+class Exp(BinaryOperation):
+
+    def operation(self, a, b):
+        return a**b
 
 class Variable(AST):
 
@@ -113,7 +110,6 @@ class Parser:
 
     def __init__(self, lexer: Lexer, line=1):
         self.lexer = lexer
-        self._old_token = None
         self.current_token = self.lexer.get_next_token()
         self.line = line
 
@@ -128,20 +124,11 @@ class Parser:
         # type and if they match then "eat" the current token
         # and assign the next token to the self.current_token,
         # otherwise raise an exception.
-        if self.current_token.type == token_type.name:
-            self._old_token = self.current_token
+        if self.current_token.type == token_type:
             self.current_token = self.lexer.get_next_token()
         else:
             self.error(SyntaxError(f"Token types {self.current_token.type} and {token_type} differ"))
 
-    def parse(self):
-        node = self.program()
-        if self.current_token.type != Tokens.END:
-            self.error
-        if self.current_token == Tokens.LET.value:
-            self.error(EOFError("Unexpected EOF while parsing"))
-        return node
-    
     def funcion(self):
         """
         function : ID (LPAREN(expr1 COMMA expr2 COMMA ... COMMA exprn) RPAREN)
@@ -162,13 +149,13 @@ class Parser:
         literal : (STRING|FLOAT|INT)
         """
         token = self.current_token
-        if token.type == Tokens.STRING.name:
+        if token.type == Tokens.STRING:
             self.eat(Tokens.STRING)
             return StrLiteral(token.value)
-        elif token.type == Tokens.INTEGER.name:
+        elif token.type == Tokens.INTEGER:
             self.eat(Tokens.INTEGER)
             return IntLiteral(int(token.value))
-        elif token.type == Tokens.FLOAT.name:
+        elif token.type == Tokens.FLOAT:
             self.eat(Tokens.FLOAT)
             return FloatLiteral(float(token.value))
         # else
@@ -181,6 +168,8 @@ class Parser:
         while self.current_token.type in (
                 Tokens.MULT,
                 Tokens.DIV,
+                Tokens.MODULO,
+                Tokens.EXP,
         ):
             token = self.current_token
             ast = None
@@ -190,6 +179,12 @@ class Parser:
             elif token.type == Tokens.DIV:
                 self.eat(Tokens.DIV)
                 ast = Division
+            elif token.type == Tokens.MODULO:
+                self.eat(Tokens.MODULO)
+                ast = Modulo
+            elif token.type == Tokens.EXP:
+                self.eat(Tokens.EXP)
+                ast = Exp
 
             node = ast(left=node, right=self.factor())
 
@@ -213,7 +208,6 @@ class Parser:
         """
         node = self.term()
         while self.current_token.type in (Tokens.PLUS, Tokens.MINUS):
-            breakpoint()
             token = self.current_token
             ast = None
             if token.type == Tokens.PLUS:
@@ -228,30 +222,41 @@ class Parser:
         return node
 
 
-    def program(self):
+    def parse(self):
         # either an expression or a declaration or a function
         # declaration
-        while self.current_token is not None:
-            breakpoint()
+        nodes = []
+        while self.current_token.type != Tokens.EOF:
             if self.current_token.type == Tokens.LET:
                 node = self.declaration()
             elif self.current_token == Tokens.FUNCTION:
                 node = self.function()
             else:
                 node = self.expr()
+            if self.current_token.type != Tokens.END:
+                raise self.error(SyntaxError("Expected ';'"))
+            self.eat(Tokens.END)
+            nodes.append(node)
+        return nodes
 
 class Interpreter:
 
     GLOBAL_SCOPE = Context()
     def __init__(self, parser: Parser):
         self.parser = parser
+        self._tree = None
+
+    @property
+    def tree(self):
+        if self._tree is None:
+            self._tree = self.parser.parse()
+        return self._tree
 
     def interpret(self):
-        tree = self.parser.parse()
-        if tree is None:
+        if not self.tree:
             return ""
-        return tree.eval(self.GLOBAL_SCOPE)
-
+        node = self.tree.pop()
+        return node.eval(self.GLOBAL_SCOPE)
 
 def repl():
     import os

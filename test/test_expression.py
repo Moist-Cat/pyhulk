@@ -34,25 +34,25 @@ class TestExpression(unittest.TestCase):
         self.assertEqual(result, 7.03)
 
     def test_basic_operation(self):
-        result = self._interpret('5 + 10')
+        result = self._interpret('5 + 10;')
         self.assertEqual(result, 15)
 
-        result = self._interpret('5 + 10.1')
+        result = self._interpret('5 + 10.1;')
         self.assertEqual(result, 15.1)
 
-        result = self._interpret('5 - 10')
+        result = self._interpret('5 - 10;')
         self.assertEqual(result, -5)
 
-        result = self._interpret('10 / 5')
+        result = self._interpret('10 / 5;')
         self.assertEqual(result, 2)
 
-        result = self._interpret('5 % 10')
+        result = self._interpret('5 % 10;')
         self.assertEqual(result, 5)
 
-        result = self._interpret('5 * 10')
+        result = self._interpret('5 * 10;')
         self.assertEqual(result, 50)
        
-        result = self._interpret('5 ^ 2')
+        result = self._interpret('5 ^ 2;')
         self.assertEqual(result, 25)
 
 

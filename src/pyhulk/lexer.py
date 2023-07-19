@@ -11,6 +11,7 @@ class Tokens(Enum):
     MINUS = "-"
     MULT = "*"
     DIV = "/"
+    MODULO = "%"
     EXP = "^"
     LPAREN = "("
     RPAREN = ")"
@@ -26,7 +27,7 @@ class Tokens(Enum):
     QUOTATION = '"'
     COMMA = ","
 
-LITERALS = {Tokens.STRING.name, Tokens.INTEGER.name, Tokens.FLOAT.name}
+LITERALS = {Tokens.STRING, Tokens.INTEGER, Tokens.FLOAT}
 
 def token_from_value(value):
     for key, pair in Tokens.__members__.items():
@@ -37,7 +38,7 @@ def token_from_value(value):
 @logged
 class Token:
     def __init__(self, type_: "Tokens", value=None, lineno=None, column=None):
-        self.type = type_.name
+        self.type = type_
         self.value = value if value else type_.value
         self.logger.debug("Created token %s", self)
         self.lineno = lineno
@@ -97,7 +98,7 @@ class Lexer:
 
     def get_result(self, condition):
         result = ""
-        while self.current_char != Tokens.END.value and getattr(self.current_char, f"is{condition}")():
+        while self.current_char != Tokens.EOF.value and getattr(self.current_char, f"is{condition}")():
             result += self.current_char
             self.advance()
         return result
@@ -109,6 +110,7 @@ class Lexer:
             self.column = 0
 
         self.pos += 1
+        self.column += 1
         if self.pos > len(self.text) - 1:
             self.current_char = None  # Indicates end of input
         else:
@@ -150,6 +152,7 @@ class Lexer:
         if self.current_char is None:
             self.error(LexingError("Unterminated string literal"))
         self.logger.debug("Lexing string %s", result)
+        self.advance()
         return result
 
     def _id(self):
