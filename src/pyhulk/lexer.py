@@ -37,10 +37,12 @@ def token_from_value(value):
 
 @logged
 class Token:
-    def __init__(self, type_: "Tokens", value=None):
+    def __init__(self, type_: "Tokens", value=None, lineno=None, column=None):
         self.type = type_.name
         self.value = value if value else type_.value
         self.logger.debug("Created token %s", self)
+        self.lineno = lineno
+        self.column = column
 
     def __hash__(self):
         return hash((self.type, self.value))
@@ -53,7 +55,12 @@ class Token:
             Token(PLUS, "+")
             Token(MUL, "*")
         """
-        return f"Token({self.type_}, {self.value})"
+        return 'Token({type}, {value}, position={lineno}:{column})'.format(
+            type=self.type,
+            value=repr(self.value),
+            lineno=self.lineno,
+            column=self.column,
+        )
 
     def __eq__(self, other):
         return isinstance(other, Token) and other.type == self.type and other.value == self.value
@@ -76,14 +83,16 @@ class Lexer:
 
     def __init__(self, text, line=1):
         self.text: str = text
-        self.line: int = line
         self.pos: int = 0
         self.current_char: str = self.text[self.pos]
 
+        self.line = 1
+        self.column = 1
+
     def error(self, exception):
-        print(f"Error lexing line {self.line} col {self.pos+1}")
+        print(f"Error lexing line {self.line} col {self.column}")
         print(self.text)
-        print(" "*(self.pos+1) + "^")
+        print(" "*(self.column) + "^")
         raise exception
 
     def get_result(self, condition):
@@ -95,9 +104,16 @@ class Lexer:
 
     def advance(self):
         """Advance the `pos` pointer and set the `current_char` variable."""
+        if self.current_char == '\n':
+            self.lineno += 1
+            self.column = 0
+
         self.pos += 1
         if self.pos > len(self.text) - 1:
-            self.error(LexingError("Unexpected EOF while parsing")) # No ";"--explode
+            if self._previous_token == Token(Tokens.END):
+                self.current_char = None  # Indicates end of input
+            else:
+                self.error(LexingError("Unexpected EOF while parsing")) # No ";"--explode
         else:
             self.current_char = self.text[self.pos]
 
@@ -149,7 +165,7 @@ class Lexer:
         return token
 
 
-    def get_next_token(self):
+    def _get_next_token(self):
         """Lexical analyzer (also known as scanner or tokenizer)
 
         This method is responsible for breaking a sentence
@@ -184,3 +200,10 @@ class Lexer:
             return Token(token)
 
         return Token(Tokens.END)
+
+    def get_next_token(self):
+        """
+        Wrapper to keep track of the last token :^)
+        """
+        self._previous_token = self._get_next_token()
+        return self._previous_token

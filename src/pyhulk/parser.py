@@ -140,7 +140,7 @@ class Parser:
 
     def term(self):
         """
-        term : (function|variable)
+        term : (function|variable|literal)
         """
         return 
 
@@ -159,7 +159,7 @@ class Parser:
         """
         node = None
         # expressions
-        elif self.current_token == Tokens.LPAREN.value:
+        if self.current_token == Tokens.LPAREN.value:
             self.eat(Tokens.LPAREN)
             node = self.expr()
         elif self.current_token.type in LITERALS:
