@@ -65,6 +65,41 @@ class IntLiteral(Literal):
 class FloatLiteral(Literal):
     _val: float = TypeValidator(float)
 
+class BinaryOperation(AST):
+
+    openration: "Callable" = None
+
+    def __init__(self, left: AST, right: AST):
+        self.left = left
+        self.right = right
+
+    def eval(self):
+        return self.operation(self.left.eval(), self.right.eval())
+
+class Sum(BinaryOperation):
+
+    operation = sum
+
+def subs(a, b):
+    # :D
+    return sum(a, -b)
+class Substraction(BinaryOperation):
+
+    operation = subs
+
+
+def div(a, b):
+    return a / b
+class Division(BinaryOperation):
+
+    operation = div
+
+
+def mult(a, b):
+    return a * b
+class Mult(BinaryOperation):
+
+    operation = mult
 
 class Variable(AST):
 
@@ -74,21 +109,18 @@ class Variable(AST):
     def eval(self, ctx):
         return ctx[self.name]
 
-# XXX finish parser
-# it's just adding the methods who handle other cases
-# literal : EOF
-#         | (OPERATION (expr))
 class Parser:
 
     def __init__(self, lexer: Lexer, line=1):
         self.lexer = lexer
+        self._old_token = None
         self.current_token = self.lexer.get_next_token()
         self.line = line
 
     def error(self, exception):
         print(f"Error parsing line {self.line} col {self.lexer.pos+1}")
         print(self.lexer.text)
-        print(" "*(self.lexer.pos+1) + "^")
+        print(" "*(self.lexer.column) + "^")
         raise exception
 
     def eat(self, token_type):
@@ -96,17 +128,19 @@ class Parser:
         # type and if they match then "eat" the current token
         # and assign the next token to the self.current_token,
         # otherwise raise an exception.
-        if self.current_token.type == token_type:
+        if self.current_token.type == token_type.name:
+            self._old_token = self.current_token
             self.current_token = self.lexer.get_next_token()
         else:
-            self.error(SyntaxError("???"))
+            self.error(SyntaxError(f"Token types {self.current_token.type} and {token_type} differ"))
 
     def parse(self):
-        # statements
+        node = self.program()
+        if self.current_token.type != Tokens.END:
+            self.error
         if self.current_token == Tokens.LET.value:
-            node = self.declare()
-            return node
-        return self.expr()
+            self.error(EOFError("Unexpected EOF while parsing"))
+        return node
     
     def funcion(self):
         """
@@ -129,43 +163,82 @@ class Parser:
         """
         token = self.current_token
         if token.type == Tokens.STRING.name:
+            self.eat(Tokens.STRING)
             return StrLiteral(token.value)
         elif token.type == Tokens.INTEGER.name:
+            self.eat(Tokens.INTEGER)
             return IntLiteral(int(token.value))
         elif token.type == Tokens.FLOAT.name:
+            self.eat(Tokens.FLOAT)
             return FloatLiteral(float(token.value))
         # else
         self.error(SyntaxError(f"Invalid literal {token.value} {token.type}"))
 
 
     def term(self):
-        """
-        term : (function|variable|literal)
-        """
-        return 
+        node = self.factor()
 
-    def operation(self):
-        """
-        operation: (PLUS|MINUS|MULT|DIV|EXP)
-        """
-        pass
+        while self.current_token.type in (
+                Tokens.MULT,
+                Tokens.DIV,
+        ):
+            token = self.current_token
+            ast = None
+            if token.type == Tokens.MULT:
+                self.eat(Tokens.MULT)
+                ast = Mult
+            elif token.type == Tokens.DIV:
+                self.eat(Tokens.DIV)
+                ast = Division
+
+            node = ast(left=node, right=self.factor())
+
+        return node
+
+    def factor(self):
+        token = self.current_token
+        if token.type in LITERALS:
+            return self.literal()
+        elif token.type == Tokens.LPAREN:
+            self.eat(Tokens.LPAREN)
+            node = self.expr()
+            self.eat(Tokens.RPAREN)
+            return node
+        else:
+            node = self.variable()
+            return node
 
     def expr(self):
         """
-        expr : LPAREN expr RPAREN
-             | term
-             | term operation expr
-             | expr (PLUT)
         """
-        node = None
-        # expressions
-        if self.current_token == Tokens.LPAREN.value:
-            self.eat(Tokens.LPAREN)
-            node = self.expr()
-        elif self.current_token.type in LITERALS:
-            return self.literal()
-        elif self.current_token.type == Tokens.ID.value:
-            return self.term()
+        node = self.term()
+        while self.current_token.type in (Tokens.PLUS, Tokens.MINUS):
+            breakpoint()
+            token = self.current_token
+            ast = None
+            if token.type == Tokens.PLUS:
+                self.eat(Tokens.PLUS)
+                ast = Sum
+            elif token.type == Tokens.MINUS:
+                self.eat(Tokens.MINUS)
+                ast = Substraction
+
+            node = ast(left=node, right=self.term())
+
+        return node
+
+
+    def program(self):
+        # either an expression or a declaration or a function
+        # declaration
+        while self.current_token is not None:
+            breakpoint()
+            if self.current_token.type == Tokens.LET:
+                node = self.declaration()
+            elif self.current_token == Tokens.FUNCTION:
+                node = self.function()
+            else:
+                node = self.expr()
 
 class Interpreter:
 

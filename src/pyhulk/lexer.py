@@ -1,7 +1,3 @@
-# Token types
-#
-# EOF (end-of-file) token is used to indicate that
-# there is no more input left for lexical analysis
 from enum import Enum
 
 from pyhulk.log import logged
@@ -21,9 +17,12 @@ class Tokens(Enum):
     ASSIGN = "="
     DOT = "."
     END = ";"
+    EOF = None
+
     LET = "let"
     FLOAT_TYPE = "float"
     INT_TYPE = "int"
+    FUNCTION = "function"
     QUOTATION = '"'
     COMMA = ","
 
@@ -72,6 +71,7 @@ RESERVED_KEYWORDS = {
     "let": Token(Tokens.LET),
     "int": Token(Tokens.INT_TYPE),
     "float": Token(Tokens.FLOAT_TYPE),
+    "function": Token(Tokens.FUNCTION),
 }
 
 class LexingError(Exception):
@@ -110,10 +110,7 @@ class Lexer:
 
         self.pos += 1
         if self.pos > len(self.text) - 1:
-            if self._previous_token == Token(Tokens.END):
-                self.current_char = None  # Indicates end of input
-            else:
-                self.error(LexingError("Unexpected EOF while parsing")) # No ";"--explode
+            self.current_char = None  # Indicates end of input
         else:
             self.current_char = self.text[self.pos]
 
@@ -145,13 +142,12 @@ class Lexer:
 
     def string(self):
         result = ""
-        # nothing fancy here
         # End Of String
-        while self.current_char != Tokens.QUOTATION.value:
+        while self.current_char != Tokens.QUOTATION.value and self.current_char is not None:
             result += self.current_char
             self.advance()
 
-        if self.current_char is not Tokens.QUOTATION.value:
+        if self.current_char is None:
             self.error(LexingError("Unterminated string literal"))
         self.logger.debug("Lexing string %s", result)
         return result
@@ -165,13 +161,13 @@ class Lexer:
         return token
 
 
-    def _get_next_token(self):
+    def get_next_token(self):
         """Lexical analyzer (also known as scanner or tokenizer)
 
         This method is responsible for breaking a sentence
         apart into tokens. One token at a time.
         """
-        while self.current_char != Tokens.END.value:
+        while self.current_char is not None:
             if self.current_char.isspace():
                 self.skip_whitespace()
                 continue
@@ -199,11 +195,4 @@ class Lexer:
             self.advance()
             return Token(token)
 
-        return Token(Tokens.END)
-
-    def get_next_token(self):
-        """
-        Wrapper to keep track of the last token :^)
-        """
-        self._previous_token = self._get_next_token()
-        return self._previous_token
+        return Token(Tokens.EOF)
