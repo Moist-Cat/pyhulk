@@ -1,34 +1,46 @@
-from typing import Union
+from typing import Union, List
 
-from pyhulk.lexer import Lexer, Tokens, LITERALS
+from pyhulk.lexer import Lexer, Tokens, LITERALS, CONDITIONALS
 from pyhulk.log import logged
+
+class UnexpectedToken(SyntaxError):
+    pass
 
 class Context:
 
     _dict: dict
 
-    def __init__(self):
-        self._dict = {}
+    def __init__(self, _dict=None):
+        self._dict = _dict or {}
 
     def __setitem__(self, key, value):
         self._dict.__setitem__(key, value)
 
     def __getitem__(self, key):
-        return self._dict.__getitem__(key)
+        try:
+            return self._dict.__getitem__(key)
+        except KeyError as exc:
+            raise NameError(str(exc) + " is not defined")
 
     def __str__(self):
         return self._dict.__str__()
+
+    def __repr__(self):
+        return self.__str__()
 
 class AST:
     """
     Master class for expressions
     """
 
+    def __call__(self, ctx: "Context"):
+        return self.eval(ctx)
+
     def eval(self, ctx: "Context"):
         raise NotImplementedError()
 
     def __str__(self):
-        return str(self.eval(None))
+        return str(self(None))
 
     def __repr__(self):
         return self.__str__()
@@ -52,6 +64,9 @@ class IntLiteral(Literal):
 class FloatLiteral(Literal):
     _val: float
 
+class BookLiteral(Literal):
+    _val: bool
+
 class BinaryOperation(AST):
 
     operation: "Callable" = None
@@ -61,7 +76,7 @@ class BinaryOperation(AST):
         self.right = right
 
     def eval(self, ctx):
-        return self.operation(self.left.eval(ctx), self.right.eval(ctx))
+        return self.operation(self.left(ctx), self.right(ctx))
 
     def __str__(self):
         return str(self.left) + self.__class__.__name__ + str(self.right)
@@ -98,13 +113,135 @@ class Exp(BinaryOperation):
     def operation(self, a, b):
         return a**b
 
+class Equals(BinaryOperation):
+
+    def operation(self, a, b):
+        return a == b
+
+class Higher(BinaryOperation):
+
+    def operation(self, a, b):
+        return a > b
+
+class Lower(BinaryOperation):
+
+    def operation(self, a, b):
+        return a < b
+
+class VariableDeclaration(AST):
+
+    def __init__(self, name, expression: AST):
+        self.name = name
+        self.expression = expression
+
+    def eval(self, ctx):
+        ctx[self.name] = self.expression(ctx)
+        return None
+
+    def __str__(self):
+        return f"<(VariableDeclaration) [name: {self.name}, value: {self.expression}]>"
+
 class Variable(AST):
 
     def __init__(self, name):
-        name: str = name
+        self.name = name
 
     def eval(self, ctx):
         return ctx[self.name]
+
+    def __str__(self):
+        return f"<(Variable) [name: {self.name}]>"
+
+class BlockNode(AST):
+    """
+    QOL class to evaluate multiple statements
+    """
+
+    def __init__(self, blocks: List[AST]):
+        self.blocks = blocks
+
+    def eval(self, ctx):
+        for block in self.blocks:
+            bl = block(ctx)
+        return bl
+
+    def __str__(self):
+        return self.blocks.__str__()
+
+class FunctionDeclaration(AST):
+
+    def __init__(self, name, args: List[str], block_node: AST):
+        self.name = name
+        self.args = args
+        self.block_node = block_node
+
+    def eval(self, ctx):
+        ctx[self.name] = self
+        return None
+
+    def __str__(self):
+        return f"<(FunctionDeclaration) [name: {self.name}, args: {self.args}, block_node: {self.block_node}]>"
+
+class Function(AST):
+
+    def __init__(self, name, args):
+        self.name = name
+        self.args = args
+
+    def eval(self, ctx):
+        fun_decl = ctx[self.name]
+        fun_args = fun_decl.args
+
+        _fun_ctx = {}
+        for index, arg in enumerate(fun_args.blocks):
+            _fun_ctx[arg.name] = self.args.blocks[index].eval(ctx)
+        fun_ctx = Context(_fun_ctx)
+        # allow recursivity
+        fun_ctx[self.name] = fun_decl
+
+        return fun_decl.block_node(fun_ctx)
+
+    def __str__(self):
+        return f"<(Function) [name: {self.name}, args: {self.args}]>"
+
+class Lambda(AST):
+    """
+    let-in expression
+    """
+
+    def __init__(self, variables: List[str], block_statement: AST):
+        self.variables = variables
+        self.block_statement = block_statement
+
+    def eval(self, ctx):
+        local_ctx = Context()
+        
+        # https://github.com/matcom/programming/tree/main/projects/hulk#variables
+        # "( ... ) Fuera de una expresión let-in las variables dejan de existir. ( ... )"
+        # declare variables inside the scope of the lambda
+        self.variables(local_ctx)
+
+        res = self.block_statement(local_ctx)
+
+        return res
+
+class Conditional(AST):
+
+    def __init__(
+        self,
+        hipotesis: AST,
+        tesis: BlockNode,
+        antitesis: BlockNode
+    ):
+        self.hipotesis = hipotesis
+        self.tesis = tesis
+        self.antitesis = antitesis
+
+    def eval(self, ctx):
+        res = bool(self.hipotesis(ctx))
+        if res:
+            return self.tesis(ctx)
+        return self.antitesis(ctx)
 
 class Parser:
 
@@ -127,22 +264,105 @@ class Parser:
         if self.current_token.type == token_type:
             self.current_token = self.lexer.get_next_token()
         else:
-            self.error(SyntaxError(f"Token types {self.current_token.type} and {token_type} differ"))
+            self.error(UnexpectedToken(f"Expected {token_type} found {self.current_token.type}."))
 
-    def funcion(self):
-        """
-        function : ID (LPAREN(expr1 COMMA expr2 COMMA ... COMMA exprn) RPAREN)
-        """
-        pass
+    def arguments(self):
+        if self.current_token.type != Tokens.LPAREN:
+            return None
 
-    def variable(self):
+        self.eat(Tokens.LPAREN)
+        args = []
+        args.append(self.expr())
+        while self.current_token.type == Tokens.COMMA:
+            self.eat(Tokens.COMMA)
+            args.append(self.expr())
+        self.eat(Tokens.RPAREN)
+
+        return BlockNode(args)
+
+    def namespace(self):
         """
         variable : ID
         """
-        pass
+        name = self.current_token
+        self.eat(Tokens.ID)
+        args = self.arguments()
+        if args:
+            node = Function(name, args)
+        else:
+            node = Variable(name)
+        return node
+
+    def letin(self):
+        self.eat(Tokens.LET)
+        variables = self.assignment()
+        self.eat(Tokens.IN)
+
+        return Lambda(variables, self.expr())
     
-    def declare(self):
-        pass
+    def assignment(self):
+        names = []
+        variables = []
+
+        name = self.current_token
+        names.append(name)
+
+        self.eat(Tokens.ID)
+        self.eat(Tokens.ASSIGN)
+        val = self.expr()
+
+        var = VariableDeclaration(name, val)
+        variables.append(var)
+
+        while self.current_token == Tokens.COMMA:
+            self.eat(Tokens.COMMA)
+            name = self.current_token
+            names.append(name)
+            
+            self.eat(Tokens.ID)
+            self.eat(Tokens.ASSIGN)
+            val = self.expr()
+
+            var = VariableDeclaration(name, val)
+            variables.append(var)
+
+        multi_decl = BlockNode(variables)
+
+        return multi_decl
+
+    def declaration(self):
+        self.eat(Tokens.VAR)
+        return self.assignment()
+
+    def function(self):
+        self.eat(Tokens.FUNCTION)
+        name = self.current_token
+        self.eat(Tokens.ID)
+        args = self.arguments()
+
+        if self.current_token.type == Tokens.FINLINE:
+            self.eat(Tokens.FINLINE)
+            return FunctionDeclaration(name, args, self.expr())
+        return None
+
+    def conditional(self):
+        self.eat(Tokens.IF)
+
+        self.eat(Tokens.LPAREN)
+        hipotesis = self.expr()
+        self.eat(Tokens.RPAREN)
+
+        tesis = self.expr()
+
+        self.eat(Tokens.ELSE)
+
+        antitesis = self.expr()
+
+        return Conditional(
+            hipotesis,
+            BlockNode([tesis]),
+            BlockNode([antitesis]),
+        )
 
     def literal(self):
         """
@@ -165,12 +385,12 @@ class Parser:
     def term(self):
         node = self.factor()
 
-        while self.current_token.type in (
+        while self.current_token.type in {
                 Tokens.MULT,
                 Tokens.DIV,
                 Tokens.MODULO,
                 Tokens.EXP,
-        ):
+        }:
             token = self.current_token
             ast = None
             if token.type == Tokens.MULT:
@@ -193,21 +413,25 @@ class Parser:
     def factor(self):
         token = self.current_token
         if token.type in LITERALS:
-            return self.literal()
+            node = self.literal()
+        elif token.type == Tokens.LET:
+            node = self.letin()
         elif token.type == Tokens.LPAREN:
             self.eat(Tokens.LPAREN)
             node = self.expr()
             self.eat(Tokens.RPAREN)
-            return node
+        elif token.type == Tokens.IF:
+            node = self.conditional()
+        elif token.type == Tokens.ID:
+            node = self.namespace()
         else:
-            node = self.variable()
-            return node
+            raise self.error(SyntaxError(token))
+
+        return node
 
     def expr(self):
-        """
-        """
         node = self.term()
-        while self.current_token.type in (Tokens.PLUS, Tokens.MINUS):
+        while self.current_token.type in {Tokens.PLUS, Tokens.MINUS}.union(CONDITIONALS):
             token = self.current_token
             ast = None
             if token.type == Tokens.PLUS:
@@ -216,28 +440,46 @@ class Parser:
             elif token.type == Tokens.MINUS:
                 self.eat(Tokens.MINUS)
                 ast = Substraction
+            elif token.type == Tokens.EQUALS:
+                self.eat(Tokens.EQUALS)
+                ast = Equals
+            elif token.type == Tokens.HIGHER:
+                self.eat(Tokens.HIGHER)
+                ast = Higher
+            elif token.type == Tokens.LOWER:
+                self.eat(Tokens.LOWER)
+                ast = Lower
+            else:
+                raise Exception("Ehhhh???")
+
 
             node = ast(left=node, right=self.term())
 
         return node
 
 
+    def _parse(self):
+        if self.current_token.type == Tokens.VAR:
+            node = self.declaration()
+        elif self.current_token.type == Tokens.FUNCTION:
+            node = self.function()
+        else:
+            node = self.expr()
+        if self.current_token.type != Tokens.END:
+            raise self.error(SyntaxError("Expected ';'"))
+
+        return node
+
     def parse(self):
         # either an expression or a declaration or a function
         # declaration
         nodes = []
         while self.current_token.type != Tokens.EOF:
-            if self.current_token.type == Tokens.LET:
-                node = self.declaration()
-            elif self.current_token == Tokens.FUNCTION:
-                node = self.function()
-            else:
-                node = self.expr()
-            if self.current_token.type != Tokens.END:
-                raise self.error(SyntaxError("Expected ';'"))
+            node = self._parse()
             self.eat(Tokens.END)
             nodes.append(node)
-        return nodes
+
+        return BlockNode(nodes)
 
 class Interpreter:
 
@@ -255,8 +497,7 @@ class Interpreter:
     def interpret(self):
         if not self.tree:
             return ""
-        node = self.tree.pop()
-        return node.eval(self.GLOBAL_SCOPE)
+        return self.tree(self.GLOBAL_SCOPE)
 
 def repl():
     import os
@@ -264,10 +505,7 @@ def repl():
         try:
             lexer = Lexer(input(">>> "))
             parser = Parser(lexer)
-            interpreter = Interpreter(parser)
-            result = interpreter.interpret()
-            print(result)
-            #print(interpreter.GLOBAL_SCOPE)
+            print(Interpreter(parser).interpret())
         except KeyboardInterrupt:
             os.system("clear")
         except EOFError:

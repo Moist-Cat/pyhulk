@@ -15,21 +15,33 @@ class Tokens(Enum):
     EXP = "^"
     LPAREN = "("
     RPAREN = ")"
+    HIGHER = ">"
+    EQUALS = "=="
+    LOWER = "<"
     ASSIGN = "="
+    FINLINE = "=>"
     DOT = "."
     END = ";"
     EOF = None
-
+    VAR = "var"
     LET = "let"
-    FLOAT_TYPE = "float"
-    INT_TYPE = "int"
+    IN = "in"
+    IF = "if"
+    ELSE = "else"
     FUNCTION = "function"
     QUOTATION = '"'
     COMMA = ","
 
 LITERALS = {Tokens.STRING, Tokens.INTEGER, Tokens.FLOAT}
+CONDITIONALS = {Tokens.EQUALS, Tokens.HIGHER, Tokens.LOWER}
 
-def token_from_value(value):
+def token_from_value(value, value2):
+    # composite tokens
+    for key, pair in Tokens.__members__.items():
+        if f"{value}{value2}" == pair.value:
+            return Tokens.__getitem__(key)
+
+    # simple tokens
     for key, pair in Tokens.__members__.items():
         if value == pair.value:
             return Tokens.__getitem__(key)
@@ -37,12 +49,10 @@ def token_from_value(value):
 
 @logged
 class Token:
-    def __init__(self, type_: "Tokens", value=None, lineno=None, column=None):
+    def __init__(self, type_: "Tokens", value=None):
         self.type = type_
         self.value = value if value else type_.value
         self.logger.debug("Created token %s", self)
-        self.lineno = lineno
-        self.column = column
 
     def __hash__(self):
         return hash((self.type, self.value))
@@ -55,11 +65,9 @@ class Token:
             Token(PLUS, "+")
             Token(MUL, "*")
         """
-        return 'Token({type}, {value}, position={lineno}:{column})'.format(
+        return 'Token({type}, {value})'.format(
             type=self.type,
             value=repr(self.value),
-            lineno=self.lineno,
-            column=self.column,
         )
 
     def __eq__(self, other):
@@ -69,10 +77,12 @@ class Token:
         return self.__str__()
 
 RESERVED_KEYWORDS = {
+    "in": Token(Tokens.IN),
     "let": Token(Tokens.LET),
-    "int": Token(Tokens.INT_TYPE),
-    "float": Token(Tokens.FLOAT_TYPE),
+    "var": Token(Tokens.VAR),
     "function": Token(Tokens.FUNCTION),
+    "if": Token(Tokens.IF),
+    "else": Token(Tokens.ELSE),
 }
 
 class LexingError(Exception):
@@ -191,11 +201,13 @@ class Lexer:
                 self.advance()
                 return Token(Tokens.STRING, self.string())
 
-            token = token_from_value(self.current_char)
+            token = token_from_value(self.current_char, self.peek())
             if not token:
                 self.error(LexingError("Invalid character"))
 
-            self.advance()
+            # composite tokens
+            for _ in range(len(token.value)):
+                self.advance()
             return Token(token)
 
         return Token(Tokens.EOF)

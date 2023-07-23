@@ -55,6 +55,52 @@ class TestExpression(unittest.TestCase):
         result = self._interpret('5 ^ 2;')
         self.assertEqual(result, 25)
 
+    def test_complex_operation(self):
+        result = self._interpret('((5 * 2) + 10);')
+        self.assertEqual(result, 20)
+
+        result = self._interpret('(5 ^ 2) + (10 / 2);')
+        self.assertEqual(result, 30)
+
+    def test_builtins(self):
+        return
+        result = self._interpret("log(2);")
+        self.assertEqual(result, log(2))
+
+    def test_asignment(self):
+        result = self._interpret("var a = 5; a;")
+
+        self.assertEqual(5, result)
+
+    def test_lamba(self):
+        result = self._interpret("7 + (let x = 2 in x * x);")
+
+        self.assertEqual(result, 11)
+
+    def test_finline(self):
+        result = self._interpret("function blob(x) => x*x; blob(5);")
+
+        self.assertEqual(result, 25)
+
+    def test_conditional(self):
+        result = self._interpret('if (0) "blob" else "doko";')
+
+        self.assertEqual(result, "doko")
+
+    def test_boolean(self):
+        result = self._interpret('if (1 > 0) "blob" else "doko";')
+
+        self.assertEqual(result, "blob")
+
+        result = self._interpret('if (1 == 0) "blob" else "doko";')
+
+        self.assertEqual(result, "doko")
+
+    def test_recursive(self):
+        result = self._interpret('function fib(n) => if (n > 1) fib(n-1) + fib(n-2) else 1;(fib(5));')
+
+        self.assertEqual(result, 13)
+
 
 def main_suite() -> unittest.TestSuite:
     s = unittest.TestSuite()
