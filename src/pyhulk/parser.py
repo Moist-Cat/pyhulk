@@ -225,6 +225,11 @@ class Lambda(AST):
 
         return res
 
+class NonExpression(AST):
+
+    def eval(self, ctx):
+        return None
+
 class Conditional(AST):
 
     def __init__(
@@ -272,6 +277,10 @@ class Parser:
 
         self.eat(Tokens.LPAREN)
         args = []
+        if self.current_token.type == Tokens.RPAREN:
+            self.eat(Tokens.RPAREN)
+            return BlockNode(())
+
         args.append(self.expr())
         while self.current_token.type == Tokens.COMMA:
             self.eat(Tokens.COMMA)
@@ -425,7 +434,7 @@ class Parser:
         elif token.type == Tokens.ID:
             node = self.namespace()
         else:
-            raise self.error(SyntaxError(token))
+            raise SyntaxError(token)
 
         return node
 

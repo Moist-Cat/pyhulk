@@ -99,8 +99,12 @@ class TestExpression(unittest.TestCase):
     def test_recursive(self):
         result = self._interpret('function fib(n) => if (n > 1) fib(n-1) + fib(n-2) else 1;(fib(5));')
 
-        self.assertEqual(result, 13)
+        self.assertEqual(result, 8)
 
+    def test_fn_without_args(self):
+        result = self._interpret('function blob() => "doko"; blob();')
+
+        self.assertEqual(result, "doko")
 
 def main_suite() -> unittest.TestSuite:
     s = unittest.TestSuite()
